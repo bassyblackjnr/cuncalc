@@ -390,4 +390,238 @@
           cunLabel.textContent = `${Number.isInteger(cunVal) ? cunVal.toFixed(1) : cunVal} cun`;
 
           const previewLabel = document.createElement('span');
-          previewLabe
+          previewLabel.className = [
+            'font-mono text-[11px] mt-0.5 leading-tight',
+            isSelected ? 'text-teal-100 font-semibold' : 'text-slate-500 dark:text-slate-400'
+          ].join(' ');
+
+          if (oneCun !== null) {
+            const cmPreview = oneCun * cunVal;
+            previewLabel.textContent = `${cmPreview.toFixed(2)} cm`;
+          } else {
+            previewLabel.textContent = '— cm';
+          }
+
+          btn.appendChild(cunLabel);
+          btn.appendChild(previewLabel);
+
+          btn.addEventListener('click', () => {
+            state.selectedPreset = cunVal;
+            state.isCustomActive = false;
+            customCunInput.value = '';
+            state.customCun = null;
+            updateUI();
+          });
+
+          presetGrid.appendChild(btn);
+        });
+      }
+
+      function updateUI() {
+        const baseline = state.threeCunCm;
+
+        // Toggle clear button visibility inside baseline input
+        if (threeCunInput.value.trim().length > 0) {
+          clearBaselineBtn.classList.remove('hidden');
+        } else {
+          clearBaselineBtn.classList.add('hidden');
+        }
+
+        // 1. Update 1-cun reference badge & range guardrails
+        if (baseline !== null) {
+          const oneCun = baseline / 3.0;
+          unitReferenceBadge.textContent = `1 Cun = ${oneCun.toFixed(2)} cm`;
+          unitReferenceBadge.classList.add('text-teal-800', 'dark:text-teal-300', 'border-teal-300', 'dark:border-teal-700');
+
+          // Clinical range validation: human 4-finger breadth typically 5.0 cm - 10.5 cm
+          if (baseline < 5.0 || baseline > 10.5) {
+            rangeWarningBanner.classList.remove('hidden');
+            if (baseline > 10.5) {
+              rangeWarningText.textContent = `Unusually large 3-cun width (${baseline} cm). Check for a decimal typo (e.g., 75 vs 7.5 cm). Calculation remains active.`;
+            } else {
+              rangeWarningText.textContent = `Unusually small 3-cun width (${baseline} cm). Verify measurement if not pediatric. Calculation remains active.`;
+            }
+          } else {
+            rangeWarningBanner.classList.add('hidden');
+          }
+        } else {
+          unitReferenceBadge.textContent = '1 Cun = — cm';
+          unitReferenceBadge.classList.remove('text-teal-800', 'dark:text-teal-300', 'border-teal-300', 'dark:border-teal-700');
+          rangeWarningBanner.classList.add('hidden');
+        }
+
+        // 2. Render Preset Buttons (with live cm values)
+        renderPresets();
+
+        // 3. Update Hero Output Display
+        const targetCun = getActiveTargetCun();
+        const resultCm = calculateCm(baseline, targetCun);
+
+        if (baseline === null) {
+          uncalibratedState.classList.remove('hidden');
+          calibratedState.classList.add('hidden');
+        } else {
+          uncalibratedState.classList.add('hidden');
+          calibratedState.classList.remove('hidden');
+
+          if (targetCun === null || resultCm === null) {
+            activeEquationLabel.textContent = 'Enter target cun';
+            mmReadout.textContent = '— mm';
+            primaryCmResult.textContent = '0.00';
+            roundedCmResult.textContent = '0.0 cm';
+            proportionBar.style.width = '0%';
+          } else {
+            const formattedTarget = Number.isInteger(targetCun) ? targetCun.toFixed(1) : targetCun;
+            activeEquationLabel.textContent = `${formattedTarget} cun = ${resultCm.toFixed(2)} cm`;
+            mmReadout.textContent = `${(resultCm * 10).toFixed(1)} mm`;
+            primaryCmResult.textContent = resultCm.toFixed(2);
+            roundedCmResult.textContent = `${resultCm.toFixed(1)} cm`;
+
+            // Dynamic scale bar (defaults to 15 cm max, expands smoothly if result exceeds 15 cm)
+            const dynamicMaxCm = resultCm > 15 ? Math.ceil(resultCm / 5) * 5 : 15;
+            const pct = Math.min(100, Math.max(2, (resultCm / dynamicMaxCm) * 100));
+            rulerScaleLabel.textContent = `Proportional Scale (0 – ${dynamicMaxCm} cm)`;
+            rulerMaxLabel.textContent = `${dynamicMaxCm} cm`;
+            proportionBar.style.width = `${pct}%`;
+          }
+        }
+      }
+
+      // --- EVENT LISTENERS ---
+      threeCunInput.addEventListener('input', (e) => {
+        const sanitized = sanitizeDecimalString(e.target.value);
+        if (e.target.value !== sanitized) {
+          e.target.value = sanitized;
+        }
+        state.threeCunCm = parsePositiveFloat(sanitized);
+        updateUI();
+      });
+
+      clearBaselineBtn.addEventListener('click', () => {
+        threeCunInput.value = '';
+        state.threeCunCm = null;
+        updateUI();
+        threeCunInput.focus();
+      });
+
+      customCunInput.addEventListener('input', (e) => {
+        const sanitized = sanitizeDecimalString(e.target.value);
+        if (e.target.value !== sanitized) {
+          e.target.value = sanitized;
+        }
+
+        if (sanitized.length > 0) {
+          state.isCustomActive = true;
+          state.customCun = parsePositiveFloat(sanitized);
+        } else {
+          state.isCustomActive = false;
+          state.customCun = null;
+        }
+        updateUI();
+      });
+
+      // New Patient Session Reset
+      newPatientBtn.addEventListener('click', () => {
+        state.threeCunCm = null;
+        state.selectedPreset = DEFAULT_TARGET_CUN;
+        state.customCun = null;
+        state.isCustomActive = false;
+
+        threeCunInput.value = '';
+        customCunInput.value = '';
+
+        updateUI();
+        threeCunInput.focus();
+
+        // Show subtle non-blocking confirmation toast
+        resetToastContainer.innerHTML = '';
+        const toast = document.createElement('div');
+        toast.className = 'toast-animate mt-2 px-3.5 py-1.5 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs font-semibold shadow-lg flex items-center gap-1.5';
+        toast.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-teal-400 dark:text-teal-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span>Session cleared for new patient</span>
+        `;
+        resetToastContainer.appendChild(toast);
+      });
+
+      // --- DARK MODE TOGGLE ---
+      function initTheme() {
+        const savedTheme = localStorage.getItem('cuncalc-theme');
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      }
+
+      themeToggleBtn.addEventListener('click', () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        try {
+          localStorage.setItem('cuncalc-theme', isDark ? 'dark' : 'light');
+        } catch (_) {
+          // Ignore storage restrictions in private browsing
+        }
+      });
+
+      // --- INLINE PWA MANIFEST & OFFLINE SERVICE WORKER ---
+      function registerInlinePWA() {
+        try {
+          // Generate inline SVG app icon data URI for manifest
+          const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#0F766E"/><path d="M380 132 132 380M290 132h90v90M222 380h-90v-90" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="256" cy="256" r="42" stroke="#ffffff" stroke-width="36" fill="none"/></svg>`;
+          const iconUrl = 'data:image/svg+xml;base64,' + btoa(iconSvg);
+
+          const manifest = {
+            name: 'CunCalc — Clinical Acupuncture Converter',
+            short_name: 'CunCalc',
+            description: 'Zero-friction clinical proportional cun-to-centimeter converter for acupuncture practitioners.',
+            start_url: '.',
+            display: 'standalone',
+            background_color: '#0F172A',
+            theme_color: '#0F766E',
+            orientation: 'portrait',
+            icons: [
+              { src: iconUrl, sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+              { src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
+            ]
+          };
+
+          const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+          const manifestLink = document.createElement('link');
+          manifestLink.rel = 'manifest';
+          manifestLink.href = URL.createObjectURL(manifestBlob);
+          document.head.appendChild(manifestLink);
+
+          // Register offline cache Service Worker when served over HTTPS/localhost
+          if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+            const swCode = `
+              const CACHE_NAME = 'cuncalc-v1';
+              self.addEventListener('install', (e) => {
+                self.skipWaiting();
+                e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(['./'])));
+              });
+              self.addEventListener('activate', (e) => {
+                e.waitUntil(self.clients.claim());
+              });
+              self.addEventListener('fetch', (e) => {
+                e.respondWith(
+                  caches.match(e.request).then((cached) => cached || fetch(e.request).catch(() => caches.match('./')))
+                );
+              });
+            `;
+            const swBlob = new Blob([swCode], { type: 'application/javascript' });
+            navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+          }
+        } catch (_) {
+          // Graceful fallback if embedded in a sandboxed iframe
+        }
+      }
+
+      // Initialize app on load
+      initTheme();
+      updateUI();
+      registerInlinePWA();
+    })();
+  </script>
+</body>
+</html>
